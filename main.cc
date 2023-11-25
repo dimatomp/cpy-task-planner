@@ -1,6 +1,8 @@
 #include <lemon/preflow.h>
 #include <lemon/list_graph.h>
 #include <iostream>
+#include <queue>
+#include <list>
 #include <lemon/cost_scaling.h>
 
 using namespace lemon;
@@ -15,109 +17,126 @@ private:
     ListDigraph digraph;
     ArcMap capMap;
     ArcMap costMap;
-    vector<Edge> weights;
-    vector<Node> tasks;
     Node source, dest;
 
+    struct Task {
+        Node node;
+        Edge weight;
+        list<pair<Edge, int>> availableDays;
+    };
+
+    struct Day {
+        Node node;
+        Edge capacity;
+        list<shared_ptr<Task>> availableTasks;
+    };
+
+    deque<shared_ptr<Task>> tasks;
+    vector<Day> days;
+
 public:
-    ListDigraph(): digraph(), capMap(digraph), costMap(digraph), source(digraph.addNode()), dest(digraph.addNode()) {}
+    TaskPlanner(): digraph(), capMap(digraph), costMap(digraph), source(digraph.addNode()), dest(digraph.addNode()) {}
 
     void addTask(int weight) {
         Node node = digraph.addNode();
-        tasks.push_back(node);
         Edge edge = digraph.addArc(source, node);
-        weights.push_back(edge);
         capMap[edge] = weight;
-        return tasks.size() - 1;
+        tasks.push_back(make_shared<Task>(Task{ node, edge }));
     }
 
-    void addDay()
+    void addDay(int capacity) {
+        Node node = digraph.addNode();
+        Edge edge = digraph.addArc(node, dest);
+        capMap[edge] = capacity;
+        costMap[edge] = days.size();
+        days.push_back({node, edge});
+    }
+
+    void addAvailableDay(int taskIdx, int dayIdx) {
+        auto task = tasks[taskIdx];
+        Day &day = days[dayIdx];
+        Edge edge = digraph.addArc(task->node, day.node);
+        capMap[edge] = capMap[task->weight];
+        task->availableDays.push_back(make_pair(edge, dayIdx));
+        day.availableTasks.push_back(task);
+    }
+
+    void planSchedule(queue<int> &results) {
+        Preflow<ListDigraph> maxFlow(digraph, capMap, source, dest);
+        CostScaling<ListDigraph> minCost(digraph);
+        while (!tasks.empty()) {
+            maxFlow.run();
+            minCost.reset();
+            minCost.upperMap(capMap);
+            minCost.costMap(costMap);
+            minCost.stSupply(source, dest, maxFlow.flowValue());
+            minCost.run();
+            while (!tasks.empty()) {
+                bool isScheduled = false;
+                bool isFullyScheduled = false;
+                auto task = tasks.front();
+                for (auto edge: task->availableDays) {
+                    int flow = minCost.flow(edge.first);
+                    if (flow == 0)
+                        continue;
+                    isScheduled = true;
+                    isFullyScheduled = flow == capMap[task->weight];
+                    Day &day = days[edge.second];
+                    capMap[day.capacity] -= capMap[task->weight];
+                    results.push(edge.second);
+                    digraph.erase(task->node);
+                    while (!day.availableTasks.empty() && !digraph.valid(day.availableTasks.front()->weight))
+                        day.availableTasks.pop_front();
+                    for (auto edgeIter = day.availableTasks.begin(); edgeIter != day.availableTasks.end();) {
+                        auto otherTask = *edgeIter;
+                        if (capMap[otherTask->weight] > capMap[day.capacity]) {
+                            day.availableTasks.erase(edgeIter++);
+                            auto revEdge = find_if(otherTask->availableDays.begin(), otherTask->availableDays.end(), [&](pair<Edge, int> revEdge) {return revEdge.second == edge.second;});
+                            digraph.erase(revEdge->first);
+                            otherTask->availableDays.erase(revEdge);
+                        } else
+                            edgeIter++;
+                    }
+                    break;
+                }
+                if (!isScheduled)
+                    results.push(-1);
+                tasks.pop_front();
+                if (!isFullyScheduled)
+                    break;
+            }
+        }
+    }
 };
 
 int main() {
+    TaskPlanner planner;
     int n, m;
     cin >> n >> m;
-    ListDigraph digraph;
-    digraph.reserveNode(2 + n + m);
-    auto source = digraph.addNode();
-    auto dest = digraph.addNode();
-    ArcMap capMap(digraph);
-    ArcMap costMap(digraph);
-    Node tasks[n];
-    int weights[n];
     for (int i = 0; i < n; i++) {
-        tasks[i] = digraph.addNode();
-        cin >> weights[i];
-        auto edge = digraph.addArc(source, tasks[i]);
-        capMap[edge] = weights[i];
+        int weight;
+        cin >> weight;
+        planner.addTask(weight);
     }
-    Node days[m];
-    Edge dayCaps[m];
     for (int i = 0; i < m; i++) {
-        days[i] = digraph.addNode();
-        dayCaps[i] = digraph.addArc(days[i], dest);
-        cin >> capMap[dayCaps[i]];
-        costMap[dayCaps[i]] = i;
+        int capacity;
+        cin >> capacity;
+        planner.addDay(capacity);
     }
-    vector<pair<Edge, int>> availableDays[n];
-    deque<pair<Edge, int>> availableTasks[m];
     for (int i = 0; i < n; i++) {
         int c;
         cin >> c;
-        availableDays[i].reserve(c);
         for (int j = 0; j < c; j++) {
             int d;
             cin >> d;
-            if (weights[i] > capMap[dayCaps[d]])
-                continue;
-            auto edge = digraph.addArc(tasks[i], days[d]);
-            availableDays[i].push_back(make_pair(edge, d));
-            availableTasks[d].push_back(make_pair(edge, i));
-            capMap[edge] = weights[i];
+            planner.addAvailableDay(i, d);
         }
     }
-    Preflow<ListDigraph> maxFlow(digraph, capMap, source, dest);
-    CostScaling<ListDigraph> minCost(digraph);
-    int cTask = 0;
-    while (cTask < n) {
-        maxFlow.run();
-        minCost.reset();
-        minCost.upperMap(capMap);
-        minCost.costMap(costMap);
-        minCost.stSupply(source, dest, maxFlow.flowValue());
-        minCost.run();
-        while (cTask < n) {
-            bool isScheduled = false;
-            bool isFullyScheduled = false;
-            for (auto edge: availableDays[cTask]) {
-                int flow = minCost.flow(edge.first);
-                if (flow == 0)
-                    continue;
-                isScheduled = true;
-                isFullyScheduled = flow == weights[cTask];
-                cout << edge.second << endl;
-                digraph.erase(tasks[cTask]);
-                capMap[dayCaps[edge.second]] -= weights[cTask];
-                while (!availableTasks[edge.second].empty() && availableTasks[edge.second].front().second <= cTask)
-                    availableTasks[edge.second].pop_front();
-                for (int i = 0; i < availableTasks[edge.second].size();) {
-                    auto revEdge = availableTasks[edge.second][i];
-                    if (weights[revEdge.second] > capMap[dayCaps[edge.second]]) {
-                        digraph.erase(revEdge.first);
-                        availableTasks[edge.second].erase(availableTasks[edge.second].begin() + i);
-                        auto &revRevEdges = availableDays[revEdge.second];
-                        revRevEdges.erase(find_if(revRevEdges.begin(), revRevEdges.end(), [&](pair<Edge, int> revRevEdge) {return revRevEdge.second == edge.second;}));
-                    } else
-                        i++;
-                }
-                break;
-            }
-            if (!isScheduled)
-                break;
-            cTask++;
-            if (!isFullyScheduled)
-                break;
-        }
+    queue<int> results;
+    planner.planSchedule(results);
+    while (!results.empty()) {
+        cout << results.front() << ' ';
+        results.pop();
     }
     return 0;
 }
