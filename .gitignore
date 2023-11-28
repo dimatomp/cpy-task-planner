@@ -4,3 +4,6 @@ build
 *.c
 *.cpp
 *.so
+dist
+*.egg-info
+__pycache__
