@@ -3,18 +3,17 @@
 #include <lemon/list_graph.h>
 #include <list>
 #include <deque>
-
-using namespace lemon;
-using namespace std;
-
-typedef ListDigraph::Node Node;
-typedef ListDigraph::ArcMap<int> ArcMap;
-typedef ListDigraph::Arc Edge;
+#include <optional>
 
 namespace taskplanner {
     class CTaskPlanner {
     private:
-        ListDigraph digraph;
+        typedef lemon::ListDigraph Digraph;
+        typedef Digraph::Node Node;
+        typedef Digraph::ArcMap<int> ArcMap;
+        typedef Digraph::Arc Edge;
+
+        Digraph digraph;
         ArcMap capMap;
         ArcMap costMap;
         Node source, dest;
@@ -22,17 +21,17 @@ namespace taskplanner {
         struct Task {
             Node node;
             Edge weight;
-            list<pair<Edge, int>> availableDays;
+            std::list<std::pair<Edge, int>> availableDays;
         };
 
         struct Day {
             Node node;
             Edge capacity;
-            list<shared_ptr<Task>> availableTasks;
+            std::list<std::shared_ptr<Task>> availableTasks;
         };
 
-        deque<shared_ptr<Task>> tasks;
-        vector<Day> days;
+        std::deque<std::shared_ptr<Task>> tasks;
+        std::vector<std::optional<Day>> days;
 
     public:
         CTaskPlanner();
