@@ -35,10 +35,9 @@ namespace taskplanner {
 
     public:
         CTaskPlanner();
-        void addTask(int weight, int availableDaysCnt, const int *availableDays);
-        void addDays(int count, const int *capacities);
-        int tasksCount() const;
-        void planSchedule(int* results);
+        void addTask(int weight, const std::vector<int> &availableDays);
+        void addDays(const std::vector<int> &capacities);
+        void planSchedule(std::vector<int> &results);
     };
 }
 #endif
